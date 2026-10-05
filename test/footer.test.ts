@@ -1,0 +1,574 @@
+import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getCapabilities, setCapabilities, stripTerminalSequences } from "@earendil-works/pi-tui";
+import footerExtension from "../extensions/footer.ts";
+
+const usage = (input: number, output: number, cacheRead: number, cost: number) => ({
+	input,
+	output,
+	cacheRead,
+	cacheWrite: 0,
+	totalTokens: input + output + cacheRead,
+	cost: { input: cost, output: 0, cacheRead: 0, cacheWrite: 0, total: cost },
+});
+type Handler = (event: unknown, ctx?: ExtensionContext) => unknown;
+type FooterFactory = (tui: { requestRender(): void }, theme: { fg(_color: string, text: string): string }, data: {
+	getGitBranch(): string | undefined;
+	getExtensionStatuses(): ReadonlyMap<string, string>;
+	onBranchChange(callback: () => void): () => void;
+}) => { render(width: number): string[]; dispose(): void };
+
+function setupFooter(
+	{
+		appendEntry = () => {},
+		exec = async () => ({ stdout: "", stderr: "", code: 1, killed: false }),
+		notify = () => {},
+	}: {
+		appendEntry?: (customType: string, data: unknown) => void;
+		exec?: (command: string, args: string[]) => Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>;
+		notify?: (message: string, type: string) => void;
+	} = {},
+) {
+	const handlers = new Map<string, Handler>();
+	footerExtension({
+		on(event: string, handler: Handler) {
+			handlers.set(event, handler);
+		},
+		appendEntry,
+		exec,
+	} as unknown as ExtensionAPI);
+
+	return {
+		handlers,
+		async start(ctx: object): Promise<FooterFactory> {
+			let footerFactory: FooterFactory | undefined;
+			const context = Object.assign(ctx, {
+				sessionManager: { getLeafId: () => null, getBranch: () => [], ...(ctx as { sessionManager?: object }).sessionManager },
+				ui: {
+					setFooter(factory: FooterFactory) {
+						footerFactory = factory;
+					},
+					notify,
+				},
+			}) as unknown as ExtensionContext;
+			const sessionStart = handlers.get("session_start");
+			assert.ok(sessionStart);
+			await sessionStart({}, context);
+			assert.ok(footerFactory);
+			return footerFactory;
+		},
+	};
+}
+
+test("renders family status on the first line and external statuses beside runtime", async (t) => {
+	const agentDir = await mkdtemp(join(tmpdir(), "pi-footer-"));
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const previousCapabilities = getCapabilities();
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	setCapabilities({ ...previousCapabilities, hyperlinks: true });
+	t.after(async () => {
+		setCapabilities(previousCapabilities);
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		await rm(agentDir, { recursive: true, force: true });
+	});
+
+	let disposed = false;
+	let thinkingLevel = "high";
+	let gitOutput = "/Users/me/.herdr/worktrees/repo/worktree-clear-field-f8d2\n/Users/me/Git/repo/.git\n";
+	let entries = [
+		{ type: "message", message: { role: "assistant", usage: usage(800, 200, 200, 0.1) } },
+		{ type: "message", message: { role: "toolResult", usage: usage(100, 50, 0, 0.02) } },
+		{ type: "compaction", usage: usage(1_500, 100, 0, 0.03) },
+		{ type: "message", message: { role: "assistant", usage: usage(500, 100, 500, 0.2) } },
+		{
+			type: "custom_message",
+			customType: "subagent-background-result",
+			details: { usage: usage(300, 50, 0, 0.04) },
+		},
+	];
+	const notifications: Array<[string, string]> = [];
+	const { start } = setupFooter({
+		exec: async () => ({ stdout: gitOutput, stderr: "", code: 0, killed: false }),
+		notify: (message, type) => notifications.push([message, type]),
+	});
+
+	const ctx = {
+		mode: "tui",
+		cwd: "/Users/me/.herdr/worktrees/repo/worktree-clear-field-f8d2",
+		model: { id: "gpt-5.6-luna" },
+		get thinkingLevel() { return thinkingLevel; },
+		sessionManager: { getEntries: () => entries },
+		getContextUsage: () => ({ tokens: 84_680, contextWindow: 200_000, percent: 42.34 }),
+	};
+
+	const footerFactory = await start(ctx);
+	assert.deepEqual(notifications, []);
+	await start(ctx);
+	assert.deepEqual(notifications, []);
+	const colors: [string, string][] = [];
+	let extensionStatuses = new Map([
+		["ponytail", "●  🐴\tponytail: ⚡ FULL\r\nready"],
+		["pi-pr", "\x1b[32mPR #123 · approved\x1b[39m"],
+		["pi-multi-codex", "Codex #1 · 50% · 7d 1d 1h 22m"],
+		["pi-rewind", "↩ rewind"],
+		["hidden", ""],
+	]);
+	const footer = footerFactory(
+		{ requestRender() {} },
+		{ fg: (color, text) => { colors.push([color, text]); return text; } },
+		{
+			getGitBranch: () => "worktree/clear-field-f8d2",
+			getExtensionStatuses: () => extensionStatuses,
+			onBranchChange: () => () => { disposed = true; },
+		},
+	);
+
+	const rendered = footer.render(100);
+	assert.match(rendered[0]!, /\x1b\]8;;vscode:\/\/file\/Users\/me\/\.herdr\/worktrees\/repo\/worktree-clear-field-f8d2\x1b\\/);
+	assert.ok(colors.some(([color, text]) => color === "accent" && text === "clear-field-f8d2"));
+	const usageText = "↑ 3.2k · ↓ 500 · ↺ 50.0% · ⚡ — · $ 0.390 · ◔ 42.3%";
+	const modelText = "gpt-5.6-luna • high";
+	assert.match(stripTerminalSequences(rendered[0]!), /^repo · clear-field-f8d2 · PR #123 · approved +Codex #1 · 50% · 7d 1d 1h 22m$/);
+	assert.match(stripTerminalSequences(rendered[1]!), new RegExp(`^${usageText.replace("$", "\\$")} +${modelText}$`));
+	assert.match(stripTerminalSequences(rendered[2]!), /^↩ rewind · ●  🐴\tponytail: ⚡ FULL ready +◷ 0s$/);
+	assert.match(rendered[0]!, /\x1b\[32mPR #123 · approved\x1b\[39m/);
+	assert.doesNotMatch(rendered[2]!, /PR #123|Codex/);
+
+	// Narrow width: external status truncates first so the runtime stays visible.
+	const narrow = stripTerminalSequences(footer.render(30)[2]!);
+	assert.match(narrow, /◷ 0s$/);
+
+	extensionStatuses = new Map([
+		["pi-rewind", "↩ rewind"],
+		["pi-multi-codex", "  \r\n  "],
+		["pi-pr", "  "],
+		["hidden", "\n"],
+	]);
+	const withoutFamilyStatus = footer.render(100);
+	assert.equal(stripTerminalSequences(withoutFamilyStatus[0]!), "repo · clear-field-f8d2");
+	assert.match(stripTerminalSequences(withoutFamilyStatus[2]!), /^↩ rewind +◷ 0s$/);
+
+	const openInConfig = join(agentDir, "config", "pi-open-in", "config.json");
+	await mkdir(join(agentDir, "config", "pi-open-in"), { recursive: true });
+	await writeFile(openInConfig, '{"command":"codex"}');
+	assert.doesNotMatch(footer.render(100)[0]!, /vscode:\/\//);
+	await writeFile(openInConfig, '{"command":"code -n"}');
+	assert.match(footer.render(100)[0]!, /vscode:\/\/file\/Users\/me\/\.herdr\/worktrees\/repo\/worktree-clear-field-f8d2\?windowId=_blank/);
+	await writeFile(openInConfig, "{not json");
+	assert.doesNotThrow(() => footer.render(100));
+	assert.doesNotMatch(footer.render(100)[0]!, /vscode:\/\//);
+	await writeFile(openInConfig, '{"command":"code"}');
+	setCapabilities({ ...previousCapabilities, hyperlinks: false });
+	assert.doesNotMatch(footer.render(100)[0]!, /\x1b\]8;;/);
+
+	thinkingLevel = "off";
+	footer.render(100);
+	assert.ok(colors.some(([color, text]) => color === "dim" && text === "off"));
+	for (const [level, color] of [
+		["minimal", 46],
+		["low", 82],
+		["medium", 118],
+		["high", 220],
+		["xhigh", 208],
+		["max", 196],
+	] as const) {
+		thinkingLevel = level;
+		assert.match(footer.render(100)[1], new RegExp(`\\x1b\\[38;5;${color}m${level}\\x1b\\[39m$`));
+	}
+
+	thinkingLevel = "ultra";
+	assert.match(footer.render(100)[1], /\x1b\[38;5;196mu\x1b\[39m\x1b\[38;5;220ml\x1b\[39m\x1b\[38;5;46mt\x1b\[39m\x1b\[38;5;39mr\x1b\[39m\x1b\[38;5;201ma\x1b\[39m$/);
+
+	entries = [];
+	assert.match(footer.render(100)[1], /↺ —(?: ·|$)/);
+	assert.doesNotMatch(footer.render(100)[1], /\?%/);
+	footer.dispose();
+	assert.equal(disposed, true);
+
+	gitOutput = "/parent/child\n/parent/.git/modules/child\n";
+	const submoduleFooterFactory = await start({ ...ctx, cwd: "/parent/child" });
+	const submoduleFooter = submoduleFooterFactory(
+		{ requestRender() {} },
+		{ fg: (_color, text) => text },
+		{
+			getGitBranch: () => "main",
+			getExtensionStatuses: () => new Map(),
+			onBranchChange: () => () => {},
+		},
+	);
+	assert.equal(stripTerminalSequences(submoduleFooter.render(100)[0]!), "child · main");
+	submoduleFooter.dispose();
+});
+
+test("shows the routed physical model under a virtual selection", async () => {
+	const { start } = setupFooter();
+	const response = (model: string, stopReason: string, thinkingLevel?: string) => ({
+		type: "message",
+		message: { role: "assistant", provider: "anthropic", model, stopReason, thinkingLevel, usage: usage(0, 0, 0, 0) },
+	});
+	const haiku = response("claude-haiku-4-5", "stop", "medium");
+	const entries = [haiku, response("claude-sonnet-4-5", "stop"), response("claude-opus-4-5", "error")];
+	let branch = entries;
+	let leaf = "failed";
+	let model = { id: "auto", api: "pi-virtual" };
+	const factory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		get model() { return model; },
+		thinkingLevel: "high",
+		sessionManager: { getEntries: () => entries, getBranch: () => branch, getLeafId: () => leaf },
+		getContextUsage: () => undefined,
+	});
+	const footer = factory(
+		{ requestRender() {} },
+		{ fg: (_color, text) => text },
+		{ getGitBranch: () => undefined, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} },
+	);
+	const modelText = () => stripTerminalSequences(footer.render(100)[1]!).replace(/^.* {2}/, "");
+	// The failed response is skipped; the routed level is omitted when the response has none.
+	assert.equal(modelText(), "auto • high → claude-sonnet-4-5");
+	// Same entries and leaf: cached.
+	branch = [haiku];
+	assert.equal(modelText(), "auto • high → claude-sonnet-4-5");
+	// Tree navigation changes the leaf and refreshes the routed model.
+	leaf = "haiku";
+	assert.match(footer.render(100)[1]!, /→ claude-haiku-4-5 • \x1b\[38;5;118mmedium\x1b\[39m$/);
+	model = { id: "claude-sonnet-4-5", api: "anthropic-messages" };
+	assert.equal(modelText(), "claude-sonnet-4-5 • high");
+	footer.dispose();
+});
+
+test("preserves CodeGraph badges and muted preparation statuses, and marks direct CodeGraph calls", async () => {
+	const { handlers, start } = setupFooter();
+	const factory = await start({
+		mode: "tui", cwd: "/repo", sessionManager: { getEntries: () => [] }, getContextUsage: () => undefined,
+	});
+	let statuses = new Map<string, string>([["pi-rewind", "↩ rewind"]]);
+	let renders = 0;
+	const colors: Array<[string, string]> = [];
+	const footer = factory(
+		{ requestRender() { renders++; } },
+		{ fg: (color, text) => { colors.push([color, text]); return text; } },
+		{ getGitBranch: () => undefined, getExtensionStatuses: () => statuses, onBranchChange: () => () => {} },
+	);
+	const third = () => {
+		colors.length = 0;
+		return stripTerminalSequences(footer.render(100)[2]!);
+	};
+	assert.match(third(), /^↩ rewind +◷ 0s$/);
+	statuses.set("pi-codegraph", "\x1b[2m⠋ CG · indexing 8s\x1b[22m");
+	statuses.set("pi-deps", "\x1b[2m⠙ deps · installing 12s\x1b[22m");
+	assert.match(third(), /^⠋ CG · indexing 8s · ⠙ deps · installing 12s · ↩ rewind +◷ 0s$/);
+	assert.match(footer.render(100)[2]!, /\x1b\[2m⠋ CG · indexing 8s\x1b\[22m/);
+	const failure = "\x1b[31m!\x1b[39m CG: setup failed";
+	statuses.set("pi-codegraph", failure);
+	assert.ok(footer.render(100)[2]!.startsWith(failure));
+	assert.match(third(), /^! CG: setup failed · /);
+	statuses.delete("pi-codegraph");
+	statuses.delete("pi-deps");
+	assert.match(third(), /^↩ rewind +◷ 0s$/);
+	statuses.set("pi-codegraph", "\x1b[2m○\x1b[22m CG");
+	assert.match(third(), /^○ CG · ↩ rewind +◷ 0s$/);
+	const indexed = "\x1b[32m✓\x1b[39m CG";
+	statuses.set("pi-codegraph", indexed);
+	assert.ok(footer.render(100)[2]!.startsWith(indexed));
+	await handlers.get("tool_execution_start")!({ toolCallId: "cg-1", toolName: "codegraph_explore", args: {} });
+	await handlers.get("tool_execution_start")!({ toolCallId: "other", toolName: "mcp", args: { server: "other", tool: "codegraph_explore" } });
+	assert.match(third(), /^● CG · ↩ rewind +◷ 0s$/);
+	assert.ok(colors.some(([color, text]) => color === "accent" && text === "●"));
+	await handlers.get("tool_execution_end")!({ toolCallId: "other", toolName: "mcp" });
+	assert.match(third(), /^● CG · /);
+	await handlers.get("tool_execution_end")!({ toolCallId: "cg-1", toolName: "codegraph_explore" });
+	assert.match(third(), /^✓ CG · ↩ rewind +◷ 0s$/);
+	assert.equal(renders, 2);
+	await handlers.get("session_shutdown")!(undefined);
+	footer.dispose();
+});
+
+test("shows deterministic Git status and refreshes after an agent run", async (t) => {
+	const gitDir = await mkdtemp(join(tmpdir(), "pi-footer-git-"));
+	await mkdir(join(gitDir, "rebase-merge"));
+	await writeFile(join(gitDir, "rebase-merge", "msgnum"), "3\n");
+	await writeFile(join(gitDir, "rebase-merge", "end"), "7\n");
+	t.after(() => rm(gitDir, { recursive: true, force: true }));
+
+	let statusOutput = [
+		"# branch.oid abcdef1234567890",
+		"# branch.head main",
+		"# branch.upstream origin/main",
+		"# branch.ab +2 -1",
+		"1 M. N... staged.txt",
+		"1 .M N... modified.txt",
+		"u UU N... conflicted.txt",
+		"? untracked.txt",
+	].join("\n");
+	const { handlers, start } = setupFooter({
+		exec: async (_command, args) => ({
+			stdout: args[0] === "rev-parse" ? `/repo\n${gitDir}\n${gitDir}\n` : statusOutput,
+			stderr: "",
+			code: 0,
+			killed: false,
+		}),
+	});
+	const footerFactory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		sessionManager: { getEntries: () => [] },
+		getContextUsage: () => undefined,
+	});
+	let branch = "main";
+	const footer = footerFactory(
+		{ requestRender() {} },
+		{ fg: (_c: string, text: string) => text },
+		{ getGitBranch: () => branch, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} },
+	);
+	assert.equal(stripTerminalSequences(footer.render(100)[0]!), "repo · main [REBASE 3/7 !1 +1 ~1 ?1 ↑2 ↓1]");
+
+	await rm(join(gitDir, "rebase-merge"), { recursive: true });
+	statusOutput = "# branch.oid 1234567890abcdef\n# branch.head (detached)\n";
+	branch = "detached";
+	await handlers.get("agent_settled")!(undefined, { isIdle: () => true } as unknown as ExtensionContext);
+	assert.equal(stripTerminalSequences(footer.render(100)[0]!), "repo · @1234567");
+	footer.dispose();
+});
+
+test("keeps the newest overlapping Git refresh", async (t) => {
+	const gitDir = await mkdtemp(join(tmpdir(), "pi-footer-git-"));
+	t.after(() => rm(gitDir, { recursive: true, force: true }));
+
+	const statusResolvers: Array<(stdout: string) => void> = [];
+	let statusCalls = 0;
+	const { handlers, start } = setupFooter({
+		exec: async (_command, args) => {
+			if (args[0] === "rev-parse") {
+				return { stdout: `/repo\n${gitDir}\n${gitDir}\n`, stderr: "", code: 0, killed: false };
+			}
+			if (statusCalls++ === 0) return { stdout: "", stderr: "", code: 0, killed: false };
+			return new Promise<{ stdout: string; stderr: string; code: number; killed: boolean }>((resolve) => {
+				statusResolvers.push((stdout) => resolve({ stdout, stderr: "", code: 0, killed: false }));
+			});
+		},
+	});
+	const footerFactory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		sessionManager: { getEntries: () => [] },
+		getContextUsage: () => undefined,
+	});
+	const footer = footerFactory(
+		{ requestRender() {} },
+		{ fg: (_c: string, text: string) => text },
+		{ getGitBranch: () => "main", getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} },
+	);
+
+	const idleCtx = { isIdle: () => true } as unknown as ExtensionContext;
+	const firstRefresh = handlers.get("agent_settled")!(undefined, idleCtx);
+	const secondRefresh = handlers.get("agent_settled")!(undefined, idleCtx);
+	assert.equal(statusResolvers.length, 2);
+	statusResolvers[1]!("? newest-one\n? newest-two\n");
+	await secondRefresh;
+	assert.equal(stripTerminalSequences(footer.render(100)[0]!), "repo · main [?2]");
+	statusResolvers[0]!("? stale\n");
+	await firstRefresh;
+	assert.equal(stripTerminalSequences(footer.render(100)[0]!), "repo · main [?2]");
+	footer.dispose();
+});
+
+test("shows TPS and active session time", async () => {
+	const { handlers, start } = setupFooter();
+	const footerFactory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		sessionManager: { getEntries: () => [] },
+		getContextUsage: () => undefined,
+	});
+	const footer = footerFactory({ requestRender() {} }, { fg: (_c: string, text: string) => text }, { getGitBranch: () => undefined, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} });
+
+	assert.match(footer.render(100)[1]!, /⚡ — /);
+	assert.equal(footer.render(100)[2]!.trim(), "◷ 0s");
+	let now = 0;
+	const realPerformance = globalThis.performance;
+	globalThis.performance = { now: () => now } as unknown as typeof performance;
+	try {
+		const assistantMessage = { role: "assistant", usage: { output: 100 } };
+		now = 5_000;
+		await handlers.get("message_update")!({ message: assistantMessage });
+		now = 6_000;
+		await handlers.get("message_update")!({ message: assistantMessage });
+		// Teardown after the last update (Claude bridge) must not count.
+		now = 9_000;
+		await handlers.get("message_end")!({ message: assistantMessage });
+		assert.match(footer.render(100)[1]!, /⚡ 100\.0 t\/s/);
+
+		// A message delivered in one update has no measurable rate.
+		await handlers.get("message_update")!({ message: assistantMessage });
+		now = 10_000;
+		await handlers.get("message_end")!({ message: assistantMessage });
+		assert.match(footer.render(100)[1]!, /⚡ — /);
+
+		await handlers.get("message_end")!({ message: { role: "assistant", usage: { output: 10 } } });
+		assert.match(footer.render(100)[1]!, /⚡ — /);
+
+		now = 7_000;
+		await handlers.get("agent_start")!({ message: { role: "assistant" } }, { isIdle: () => false } as unknown as ExtensionContext);
+		now = 3_730_000;
+		assert.equal(footer.render(100)[2]!.trim(), "◷ 1h 2m 3s");
+		const idleCtx = { isIdle: () => true } as unknown as ExtensionContext;
+		await handlers.get("agent_settled")!({ message: { role: "assistant" } }, idleCtx);
+		now = 4_000_000;
+		assert.equal(footer.render(100)[2]!.trim(), "◷ 1h 2m 3s");
+
+		const zeroOutput = { role: "assistant", usage: { output: 0 } };
+		await handlers.get("message_update")!({ message: zeroOutput });
+		now = 4_002_000;
+		await handlers.get("message_update")!({ message: zeroOutput });
+		await handlers.get("message_end")!({ message: zeroOutput });
+		assert.match(footer.render(100)[1]!, /⚡ 0\.0 t\/s/);
+	} finally {
+		await handlers.get("agent_settled")?.({ message: { role: "assistant" } }, { isIdle: () => true } as unknown as ExtensionContext);
+		globalThis.performance = realPerformance;
+	}
+});
+
+test("counts one agent run across duplicate starts and stale settled", async () => {
+	const { handlers, start } = setupFooter();
+	const footerFactory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		sessionManager: { getEntries: () => [] },
+		getContextUsage: () => undefined,
+	});
+	const footer = footerFactory({ requestRender() {} }, { fg: (_c: string, text: string) => text }, { getGitBranch: () => undefined, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} });
+	const runtime = () => footer.render(100)[2]!.trim();
+
+	let now = 0;
+	let idle = true;
+	const ctx = { isIdle: () => idle } as unknown as ExtensionContext;
+	const realPerformance = globalThis.performance;
+	globalThis.performance = { now: () => now } as unknown as typeof performance;
+	try {
+		// Duplicate start ignored; a non-idle settled must not finalize the newer run.
+		await handlers.get("agent_start")!(undefined, ctx);
+		now = 1_000;
+		await handlers.get("agent_start")!(undefined, ctx);
+		idle = false;
+		await handlers.get("agent_settled")!(undefined, ctx);
+		assert.equal(runtime(), "◷ 1s");
+		now = 2_500;
+		idle = true;
+		await handlers.get("agent_settled")!(undefined, ctx);
+		assert.equal(runtime(), "◷ 2s");
+	} finally {
+		// Clear the active interval before restoring globals so assertion failures cannot hang.
+		await handlers.get("session_shutdown")?.(undefined);
+		globalThis.performance = realPerformance;
+	}
+});
+
+test("excludes prompt waits and persists a paused run", async () => {
+	const appended: Array<[string, unknown]> = [];
+	const { handlers, start } = setupFooter({
+		appendEntry(customType, data) {
+			appended.push([customType, data]);
+		},
+	});
+	const footerFactory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		sessionManager: { getEntries: () => [] },
+		getContextUsage: () => undefined,
+	});
+	const footer = footerFactory({ requestRender() {} }, { fg: (_c: string, text: string) => text }, { getGitBranch: () => undefined, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} });
+	const runtime = () => footer.render(100)[2]!.trim();
+
+	let now = 0;
+	const idleCtx = { isIdle: () => true } as unknown as ExtensionContext;
+	const realPerformance = globalThis.performance;
+	globalThis.performance = { now: () => now } as unknown as typeof performance;
+	try {
+		// Prompt events outside a run are no-ops.
+		await handlers.get("ui_prompt_start")!(undefined);
+		await handlers.get("ui_prompt_end")!(undefined);
+
+		await handlers.get("agent_start")!(undefined);
+		now = 1_000;
+		await handlers.get("ui_prompt_start")!(undefined);
+		now = 5_000;
+		await handlers.get("agent_start")!(undefined); // Duplicate start while paused is ignored.
+		now = 8_000;
+		assert.equal(runtime(), "◷ 1s");
+
+		await handlers.get("ui_prompt_end")!(undefined);
+		now = 10_000;
+		assert.equal(runtime(), "◷ 3s");
+
+		await handlers.get("ui_prompt_start")!(undefined);
+		now = 15_000;
+		await handlers.get("agent_settled")!(undefined, idleCtx);
+		assert.equal(runtime(), "◷ 3s");
+		assert.deepEqual(appended, [["pi-footer:agent-work", 3_000]]);
+		await handlers.get("ui_prompt_end")!(undefined);
+		now = 20_000;
+		assert.equal(runtime(), "◷ 3s");
+	} finally {
+		await handlers.get("session_shutdown")?.(undefined);
+		globalThis.performance = realPerformance;
+	}
+});
+
+test("restores cumulative agent time on resume and appends updated totals", async () => {
+	const appended: Array<[string, unknown]> = [];
+	const { handlers, start } = setupFooter({
+		appendEntry(customType, data) {
+			appended.push([customType, data]);
+		},
+	});
+	const entries = [
+		{ type: "custom", customType: "pi-footer:agent-work", data: 1_000 },
+		{ type: "custom", customType: "pi-footer:agent-work", data: -5 },
+		{ type: "custom", customType: "other", data: 999_999 },
+		{ type: "custom", customType: "pi-footer:agent-work", data: 65_000 },
+	];
+	const footerFactory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		sessionManager: { getEntries: () => entries },
+		getContextUsage: () => undefined,
+	});
+	const footer = footerFactory({ requestRender() {} }, { fg: (_c: string, text: string) => text }, { getGitBranch: () => undefined, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} });
+	assert.equal(footer.render(100)[2]!.trim(), "◷ 1m 5s");
+
+	let now = 0;
+	const realPerformance = globalThis.performance;
+	globalThis.performance = { now: () => now } as unknown as typeof performance;
+	try {
+		const ctx = { isIdle: () => true } as unknown as ExtensionContext;
+		await handlers.get("agent_start")!(undefined, ctx);
+		now = 2_500;
+		await handlers.get("agent_settled")!(undefined, ctx);
+		assert.deepEqual(appended, [["pi-footer:agent-work", 67_500]]);
+		assert.equal(footer.render(100)[2]!.trim(), "◷ 1m 7s");
+
+		// Non-TUI sessions restore their own total before global agent handlers append.
+		now = 10_000;
+		await handlers.get("session_start")!({}, {
+			mode: "rpc",
+			sessionManager: { getEntries: () => entries },
+		} as unknown as ExtensionContext);
+		await handlers.get("agent_start")!(undefined, ctx);
+		now = 11_500;
+		await handlers.get("agent_settled")!(undefined, ctx);
+		assert.deepEqual(appended, [
+			["pi-footer:agent-work", 67_500],
+			["pi-footer:agent-work", 66_500],
+		]);
+	} finally {
+		await handlers.get("session_shutdown")?.(undefined, undefined as never);
+		globalThis.performance = realPerformance;
+	}
+});
