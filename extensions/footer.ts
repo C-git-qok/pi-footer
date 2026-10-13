@@ -15,6 +15,8 @@ const THINKING_COLORS = {
 const HENRY_STATUS_KEY = "pi-multi-codex";
 const AGENT_TIME_ENTRY = "pi-footer:agent-work";
 const SUBAGENT_BACKGROUND_RESULT = "subagent-background-result";
+// Shorter windows are bursts (non-streamed fallbacks, one large chunk) or too coarse to time.
+const MIN_TPS_WINDOW_MS = 250;
 /** Pi's VIRTUAL_MODEL_API: catalog entries that route each request to a physical model. */
 const VIRTUAL_MODEL_API = "pi-virtual";
 
@@ -309,9 +311,9 @@ export default function footerExtension(pi: ExtensionAPI): void {
 		pi.on("message_end", async (event) => {
 			if (event.message.role !== "assistant") return;
 			const output = event.message.usage?.output ?? 0;
-			const seconds = assistantStartedAt === undefined ? 0 : (assistantLastUpdateAt! - assistantStartedAt) / 1000;
+			const milliseconds = assistantStartedAt === undefined ? 0 : assistantLastUpdateAt! - assistantStartedAt;
 			assistantStartedAt = assistantLastUpdateAt = undefined;
-			tps = seconds > 0 ? output / seconds : undefined;
+			tps = milliseconds >= MIN_TPS_WINDOW_MS ? output / (milliseconds / 1000) : undefined;
 		});
 
 		// ponytail: keyed on length + last entry (sessions are append-only) + leaf (tree navigation); revisit if entries ever mutate in place.
@@ -394,7 +396,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
 						`↑${formatTokens(input)}`,
 						`↓${formatTokens(output)}`,
 						`»${cacheRate === undefined ? "—" : `${cacheRate.toFixed(1)}%`}`,
-						`⚡${tps === undefined ? "—" : `${tps.toFixed(1)}t/s`}`,
+						`↯${tps === undefined ? "—" : `${tps.toFixed(1)}t/s`}`,
 						`◔${context == null ? '—' : (contextUsage?.tokens != null ? `${formatTokens(contextUsage.tokens)}/${formatTokens(contextUsage.contextWindow)}·${context.toFixed(1)}%` : `${context.toFixed(1)}%`)}`,
 					].join(" "));
 					const thinkingText = (level: string) => {

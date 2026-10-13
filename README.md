@@ -1,6 +1,6 @@
 # pi-footer（C-git-qok fork）
 
-> 本 fork 基于 [@HenryQW/pi-harness](https://github.com/HenryQW/pi-harness) 仓内 pi-footer（v2.2.4），显示层修改：上下文占用改为已用/总量同时显示；用量行移除费用（$）显示，紧缩为单空格分隔，缓存命中率图标 `↺` 改为 `»`，TPS 数值与单位去空格；其余与上游一致。
+> 本 fork 基于 [@HenryQW/pi-harness](https://github.com/HenryQW/pi-harness) 仓内 pi-footer（v2.2.4），显示层修改：上下文占用改为已用/总量同时显示；用量行移除费用（$）显示，紧缩为单空格分隔，缓存命中率图标 `↺` 改为 `»`，TPS 图标 `⚡` 改为 `↯` 且数值与单位去空格；其余与上游一致。
 
 Keep checkout identity, model usage, elapsed agent work, and extension status visible while you work in Pi. See repository, pull request, model, and status details without separate commands.
 
@@ -27,7 +27,7 @@ After installing, start a Pi TUI session to see checkout, usage, model, thinking
 
 ```text
 pi-harness · clear-field-f8d2 [+2 ~3 ?1 ↑2] · PR #123 · approved    Codex #1 · 50% · 7d 1d 1h 22m
-↑12.4k ↓2.1k »84.3% ⚡87.4t/s ◔36.8%    gpt-5.6-luna • high
+↑12.4k ↓2.1k »84.3% ↯87.4t/s ◔36.8%    gpt-5.6-luna • high
 ✓ CG · ●  🐴 ponytail: ⚡ FULL                                          ◷ 12m 34s
 ```
 
