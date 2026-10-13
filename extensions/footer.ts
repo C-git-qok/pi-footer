@@ -391,13 +391,12 @@ export default function footerExtension(pi: ExtensionAPI): void {
 					}
 					const ellipsis = theme.fg("dim", "…");
 					const usage = theme.fg("dim", [
-						`↑ ${formatTokens(input)}`,
-						`↓ ${formatTokens(output)}`,
-						`↺ ${cacheRate === undefined ? "—" : `${cacheRate.toFixed(1)}%`}`,
-						`⚡ ${tps === undefined ? "—" : `${tps.toFixed(1)} t/s`}`,
-					`$ ${cost.toFixed(3)}`,
-						`◔ ${context == null ? '—' : (contextUsage?.tokens != null ? `${formatTokens(contextUsage.tokens)}/${formatTokens(contextUsage.contextWindow)} · ${context.toFixed(1)}%` : `${context.toFixed(1)}%`)}`,
-					].join(" · "));
+						`↑${formatTokens(input)}`,
+						`↓${formatTokens(output)}`,
+						`»${cacheRate === undefined ? "—" : `${cacheRate.toFixed(1)}%`}`,
+						`⚡${tps === undefined ? "—" : `${tps.toFixed(1)}t/s`}`,
+						`◔${context == null ? '—' : (contextUsage?.tokens != null ? `${formatTokens(contextUsage.tokens)}/${formatTokens(contextUsage.contextWindow)}·${context.toFixed(1)}%` : `${context.toFixed(1)}%`)}`,
+					].join(" "));
 					const thinkingText = (level: string) => {
 						const thinkingColor = THINKING_COLORS[level as keyof typeof THINKING_COLORS];
 						return level === "ultra" ? rainbow(level) : thinkingColor === undefined ? theme.fg("dim", level) : color(level, thinkingColor);

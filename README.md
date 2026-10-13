@@ -1,8 +1,8 @@
 # pi-footer（C-git-qok fork）
 
-> 本 fork 基于上游 HenryQW/pi-harness 仓内 pi-footer（v2.2.4），仅做一处显示修改：上下文占用改为已用/总量同时显示；其余与上游一致。
+> 本 fork 基于 [@HenryQW/pi-harness](https://github.com/HenryQW/pi-harness) 仓内 pi-footer（v2.2.4），显示层修改：上下文占用改为已用/总量同时显示；用量行移除费用（$）显示，紧缩为单空格分隔，缓存命中率图标 `↺` 改为 `»`，TPS 数值与单位去空格；其余与上游一致。
 
-Keep checkout identity, model usage, elapsed agent work, and extension status visible while you work in Pi. See repository, pull request, model, cost, and status details without separate commands.
+Keep checkout identity, model usage, elapsed agent work, and extension status visible while you work in Pi. See repository, pull request, model, and status details without separate commands.
 
 ![Pi footer showing repository, pull request, quota, usage, model, and extension status](./example.png)
 
@@ -27,12 +27,12 @@ After installing, start a Pi TUI session to see checkout, usage, model, thinking
 
 ```text
 pi-harness · clear-field-f8d2 [+2 ~3 ?1 ↑2] · PR #123 · approved    Codex #1 · 50% · 7d 1d 1h 22m
-↑ 12.4k · ↓ 2.1k · ↺ 84.3% · ⚡ 87.4 t/s · $ 0.127 · ◔ 36.8%    gpt-5.6-luna • high
+↑12.4k ↓2.1k »84.3% ⚡87.4t/s ◔36.8%    gpt-5.6-luna • high
 ✓ CG · ●  🐴 ponytail: ⚡ FULL                                          ◷ 12m 34s
 ```
 
 - The first line shows the repository, branch, Git state, and `pi-pr` pull request status beside the checkout identity. The `pi-multi-codex` quota status, when non-empty, occupies the right side. Linked-worktree branches drop the generated `worktree/` prefix.
-- The second line shows cumulative input tokens, output tokens, latest cache-hit rate, and tokens per second for the most recent assistant response. The rate is timed from the response's first streamed content to its last, so request latency, time to first token, and provider work after the stream ends (such as Claude bridge shutting down Claude Code) are excluded. A response that arrives without streamed content, or all at once, shows `—`. It also shows estimated cost and context usage. Totals include reported tool usage and finished `pi-subagent` background workflows. The active model and thinking level are right-aligned. Under a virtual model, the physical model and thinking level of the latest successful response follow an arrow, for example `auto • high → gpt-5.6-luna • medium`, matching Pi's built-in footer.
+- The second line shows cumulative input tokens, output tokens, latest cache-hit rate, and tokens per second for the most recent assistant response, separated by single spaces. The rate is timed from the response's first streamed content to its last, so request latency, time to first token, and provider work after the stream ends (such as Claude bridge shutting down Claude Code) are excluded. A response that arrives without streamed content, or all at once, shows `—`. It also shows context usage. Totals include reported tool usage and finished `pi-subagent` background workflows. The active model and thinking level are right-aligned. Under a virtual model, the physical model and thinking level of the latest successful response follow an arrow, for example `auto • high → gpt-5.6-luna • medium`, matching Pi's built-in footer.
 - The third line shows CodeGraph's icon and `CG` first: `✓ CG` when indexed, `○ CG` when a Git repository has no index, or a dim spinner and elapsed time such as `⠋ CG · indexing 8s` during setup. Non-Git directories show no index badge. Other extension statuses follow, such as `⠋ deps · installing 12s`; dependency preparation statuses disappear when work completes. Persistent CodeGraph failures retain their theme-colored `!` icon and meaningful text. During direct `codegraph_explore` calls, `● CG` temporarily replaces the CodeGraph status, which returns when the call finishes. A middle dot separates statuses; cumulative agent-work time stays on the right, beneath the active model.
 
 Git badges appear only when action is needed:
