@@ -395,7 +395,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
 					const usage = theme.fg("dim", [
 						`»${cacheRate === undefined ? "—" : `${cacheRate.toFixed(1)}%`}`,
 						`↯${tps === undefined ? "—" : `${tps.toFixed(1)}t/s`}`,
-						`◔${context == null ? '—' : (contextUsage?.tokens != null ? `${formatTokens(contextUsage.tokens)}/${formatTokens(contextUsage.contextWindow)}·${context.toFixed(1)}%` : `${context.toFixed(1)}%`)}`,
+						`◔${context == null ? '—' : (contextUsage?.tokens != null ? `${formatTokens(contextUsage.tokens)}/${formatTokens(contextUsage.contextWindow)}[${context.toFixed(1)}%]` : `${context.toFixed(1)}%`)}`,
 						`↑${formatTokens(input)}`,
 						`↓${formatTokens(output)}`,
 					].join(" "));
