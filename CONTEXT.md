@@ -6,8 +6,12 @@
 Concise repository and branch label identifying current checkout. Actionable local Git state follows the branch in brackets and stays hidden when clean and synchronized. It shows active operations, conflicts, staged, unstaged, and untracked path counts, upstream divergence, and detached HEAD. A non-empty `pi-pr` pull-request status follows checkout identity; CodeGraph appears separately on the third line. Generated `worktree/` branch prefix is display noise. When the open command executable is `code`, including a missing config that silently defaults to `code`, and Pi reports hyperlink support, identity links to current path through a safe VS Code URI. The `-n` and `--new-window` flags make that link open a new window; otherwise unsupported executables render as plain text.
 _Avoid_: Working-directory path, worktree path, clean badge, remote fetch
 
+**Session name**:
+Session title from the latest `session_info` entry, appended dim after checkout identity and any `pi-pr` status on the first footer line, mirroring Pi's built-in footer. Absent when the session has no name; resuming or switching a session replaces it.
+_Avoid_: Session file name, session id, project name
+
 **Usage line**:
-Cumulative session input and output, including reported tool usage and finished `pi-subagent` background workflows, plus latest cache-hit rate and current context usage. Right-aligned active model and thinking level follow. `off` matches dim model text, active levels follow a distinct green-to-red gradient ending with red `max`, and `ultra` is rainbow when runtime supports it.
+Latest cache-hit rate, tokens per second for the most recent response with `—` when its streamed window is under 250 ms, and current context usage as used/window and percent, then cumulative session input and output including reported tool usage and finished `pi-subagent` background workflows. Right-aligned active model and thinking level follow. `off` matches dim model text, active levels follow a distinct green-to-red gradient ending with red `max`, and `ultra` is rainbow when runtime supports it.
 _Avoid_: Token counter, status line
 
 **Agent-work time**:

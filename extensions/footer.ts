@@ -395,7 +395,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
 					const usage = theme.fg("dim", [
 						`»${cacheRate === undefined ? "—" : `${cacheRate.toFixed(1)}%`}`,
 						`↯${tps === undefined ? "—" : `${tps.toFixed(1)}t/s`}`,
-						`◔${context == null ? '—' : (contextUsage?.tokens != null ? `${formatTokens(contextUsage.tokens)}/${formatTokens(contextUsage.contextWindow)}[${context.toFixed(1)}%]` : `${context.toFixed(1)}%`)}`,
+						`🧠${context == null ? '—' : (contextUsage?.tokens != null ? `${formatTokens(contextUsage.tokens)}/${formatTokens(contextUsage.contextWindow)}[${context.toFixed(1)}%]` : `${context.toFixed(1)}%`)}`,
 						`↑${formatTokens(input)}`,
 						`↓${formatTokens(output)}`,
 					].join(" "));
@@ -417,7 +417,10 @@ export default function footerExtension(pi: ExtensionAPI): void {
 						: theme.fg("dim", checkout);
 					const checkoutStatus = gitSummary.badges ? `${checkoutLink} ${theme.fg("dim", gitSummary.badges)}` : checkoutLink;
 					const identityLine = prStatus ? `${identity}${checkoutStatus} · ${prStatus}` : `${identity}${checkoutStatus}`;
-					const firstLine = henryStatuses.length ? align(identityLine, henryStatuses.join(" "), width, ellipsis) : identityLine;
+					// Pi's own footer appends the session name to the checkout identity; mirror it.
+					const sessionName = ctx.sessionManager.getSessionName();
+					const identityText = sessionName ? `${identityLine} ${theme.fg("dim", `• ${sessionName}`)}` : identityLine;
+					const firstLine = henryStatuses.length ? align(identityText, henryStatuses.join(" "), width, ellipsis) : identityText;
 					const lines = [
 						firstLine,
 						align(usage, model, width, ellipsis),

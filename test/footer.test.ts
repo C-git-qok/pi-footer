@@ -47,7 +47,7 @@ function setupFooter(
 		async start(ctx: object): Promise<FooterFactory> {
 			let footerFactory: FooterFactory | undefined;
 			const context = Object.assign(ctx, {
-				sessionManager: { getLeafId: () => null, getBranch: () => [], ...(ctx as { sessionManager?: object }).sessionManager },
+				sessionManager: { getLeafId: () => null, getBranch: () => [], getSessionName: () => undefined, ...(ctx as { sessionManager?: object }).sessionManager },
 				ui: {
 					setFooter(factory: FooterFactory) {
 						footerFactory = factory;
@@ -131,10 +131,12 @@ test("renders family status on the first line and external statuses beside runti
 	const rendered = footer.render(100);
 	assert.match(rendered[0]!, /\x1b\]8;;vscode:\/\/file\/Users\/me\/\.herdr\/worktrees\/repo\/worktree-clear-field-f8d2\x1b\\/);
 	assert.ok(colors.some(([color, text]) => color === "accent" && text === "clear-field-f8d2"));
-	const usageText = "↑ 3.2k · ↓ 500 · ↺ 50.0% · ⚡ — · $ 0.390 · ◔ 42.3%";
+	const usageText = "»50.0% ↯— ◔84.7k/200.0k[42.3%] ↑3.2k ↓500";
 	const modelText = "gpt-5.6-luna • high";
 	assert.match(stripTerminalSequences(rendered[0]!), /^repo · clear-field-f8d2 · PR #123 · approved +Codex #1 · 50% · 7d 1d 1h 22m$/);
-	assert.match(stripTerminalSequences(rendered[1]!), new RegExp(`^${usageText.replace("$", "\\$")} +${modelText}$`));
+	const usageLine = stripTerminalSequences(rendered[1]!);
+	assert.ok(usageLine.startsWith(`${usageText} `), usageLine);
+	assert.ok(usageLine.endsWith(modelText), usageLine);
 	assert.match(stripTerminalSequences(rendered[2]!), /^↩ rewind · ●  🐴\tponytail: ⚡ FULL ready +◷ 0s$/);
 	assert.match(rendered[0]!, /\x1b\[32mPR #123 · approved\x1b\[39m/);
 	assert.doesNotMatch(rendered[2]!, /PR #123|Codex/);
@@ -185,7 +187,7 @@ test("renders family status on the first line and external statuses beside runti
 	assert.match(footer.render(100)[1], /\x1b\[38;5;196mu\x1b\[39m\x1b\[38;5;220ml\x1b\[39m\x1b\[38;5;46mt\x1b\[39m\x1b\[38;5;39mr\x1b\[39m\x1b\[38;5;201ma\x1b\[39m$/);
 
 	entries = [];
-	assert.match(footer.render(100)[1], /↺ —(?: ·|$)/);
+	assert.match(footer.render(100)[1], /»—/);
 	assert.doesNotMatch(footer.render(100)[1], /\?%/);
 	footer.dispose();
 	assert.equal(disposed, true);
@@ -389,7 +391,7 @@ test("shows TPS and active session time", async () => {
 	});
 	const footer = footerFactory({ requestRender() {} }, { fg: (_c: string, text: string) => text }, { getGitBranch: () => undefined, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} });
 
-	assert.match(footer.render(100)[1]!, /⚡ — /);
+	assert.match(footer.render(100)[1]!, /↯— /);
 	assert.equal(footer.render(100)[2]!.trim(), "◷ 0s");
 	let now = 0;
 	const realPerformance = globalThis.performance;
@@ -403,16 +405,32 @@ test("shows TPS and active session time", async () => {
 		// Teardown after the last update (Claude bridge) must not count.
 		now = 9_000;
 		await handlers.get("message_end")!({ message: assistantMessage });
-		assert.match(footer.render(100)[1]!, /⚡ 100\.0 t\/s/);
+		assert.match(footer.render(100)[1]!, /↯100\.0t\/s/);
 
 		// A message delivered in one update has no measurable rate.
 		await handlers.get("message_update")!({ message: assistantMessage });
 		now = 10_000;
 		await handlers.get("message_end")!({ message: assistantMessage });
-		assert.match(footer.render(100)[1]!, /⚡ — /);
+		assert.match(footer.render(100)[1]!, /↯— /);
 
+		// A window shorter than MIN_TPS_WINDOW_MS is a burst, not a measurable rate.
+		now = 20_000;
+		await handlers.get("message_update")!({ message: assistantMessage });
+		now = 20_100;
+		await handlers.get("message_update")!({ message: assistantMessage });
+		now = 20_500;
+		await handlers.get("message_end")!({ message: assistantMessage });
+		assert.match(footer.render(100)[1]!, /↯— /);
+
+		now = 30_000;
+		await handlers.get("message_update")!({ message: assistantMessage });
+		now = 30_250;
+		await handlers.get("message_update")!({ message: assistantMessage });
+		now = 30_750;
+		await handlers.get("message_end")!({ message: assistantMessage });
+		assert.match(footer.render(100)[1]!, /↯400\.0t\/s/);
 		await handlers.get("message_end")!({ message: { role: "assistant", usage: { output: 10 } } });
-		assert.match(footer.render(100)[1]!, /⚡ — /);
+		assert.match(footer.render(100)[1]!, /↯— /);
 
 		now = 7_000;
 		await handlers.get("agent_start")!({ message: { role: "assistant" } }, { isIdle: () => false } as unknown as ExtensionContext);
@@ -428,7 +446,7 @@ test("shows TPS and active session time", async () => {
 		now = 4_002_000;
 		await handlers.get("message_update")!({ message: zeroOutput });
 		await handlers.get("message_end")!({ message: zeroOutput });
-		assert.match(footer.render(100)[1]!, /⚡ 0\.0 t\/s/);
+		assert.match(footer.render(100)[1]!, /↯0\.0t\/s/);
 	} finally {
 		await handlers.get("agent_settled")?.({ message: { role: "assistant" } }, { isIdle: () => true } as unknown as ExtensionContext);
 		globalThis.performance = realPerformance;
@@ -571,4 +589,35 @@ test("restores cumulative agent time on resume and appends updated totals", asyn
 		await handlers.get("session_shutdown")?.(undefined, undefined as never);
 		globalThis.performance = realPerformance;
 	}
+});
+
+test("shows the session name after checkout identity and follows renames", async () => {
+	const { start } = setupFooter();
+	let sessionName: string | undefined = "修 footer 图标";
+	const footerFactory = await start({
+		mode: "tui",
+		cwd: "/repo",
+		sessionManager: { getEntries: () => [], getSessionName: () => sessionName },
+		getContextUsage: () => undefined,
+	});
+	const footer = footerFactory(
+		{ requestRender() {} },
+		{ fg: (_color: string, text: string) => text },
+		{ getGitBranch: () => undefined, getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} },
+	);
+
+	assert.equal(stripTerminalSequences(footer.render(100)[0]!), "repo • 修 footer 图标");
+
+	const branched = footerFactory(
+		{ requestRender() {} },
+		{ fg: (_color: string, text: string) => text },
+		{ getGitBranch: () => "main", getExtensionStatuses: () => new Map(), onBranchChange: () => () => {} },
+	);
+	assert.equal(stripTerminalSequences(branched.render(100)[0]!), "repo · main • 修 footer 图标");
+
+	sessionName = "renamed";
+	assert.equal(stripTerminalSequences(footer.render(100)[0]!), "repo • renamed");
+
+	sessionName = undefined;
+	assert.equal(stripTerminalSequences(footer.render(100)[0]!), "repo");
 });
