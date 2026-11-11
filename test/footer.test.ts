@@ -100,7 +100,7 @@ test("renders family status on the first line and external statuses beside runti
 	const ctx = {
 		mode: "tui",
 		cwd: "/Users/me/.herdr/worktrees/repo/worktree-clear-field-f8d2",
-		model: { id: "gpt-5.6-luna" },
+		model: { id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
 		get thinkingLevel() { return thinkingLevel; },
 		sessionManager: { getEntries: () => entries },
 		getContextUsage: () => ({ tokens: 84_680, contextWindow: 200_000, percent: 42.34 }),
@@ -131,8 +131,8 @@ test("renders family status on the first line and external statuses beside runti
 	const rendered = footer.render(100);
 	assert.match(rendered[0]!, /\x1b\]8;;vscode:\/\/file\/Users\/me\/\.herdr\/worktrees\/repo\/worktree-clear-field-f8d2\x1b\\/);
 	assert.ok(colors.some(([color, text]) => color === "accent" && text === "clear-field-f8d2"));
-	const usageText = "»50.0% ↯— ◔84.7k/200.0k[42.3%] ↑3.2k ↓500";
-	const modelText = "gpt-5.6-luna • high";
+	const usageText = "»50.0% ↯— 🧠84.7k/200.0k[42.3%] ↑3.2k ↓500";
+	const modelText = "GPT-5.6 Luna • high";
 	assert.match(stripTerminalSequences(rendered[0]!), /^repo · clear-field-f8d2 · PR #123 · approved +Codex #1 · 50% · 7d 1d 1h 22m$/);
 	const usageLine = stripTerminalSequences(rendered[1]!);
 	assert.ok(usageLine.startsWith(`${usageText} `), usageLine);
@@ -218,6 +218,10 @@ test("shows the routed physical model under a virtual selection", async () => {
 	let branch = entries;
 	let leaf = "failed";
 	let model = { id: "auto", api: "pi-virtual" };
+	const names = new Map([
+		["anthropic/claude-haiku-4-5", "Claude Haiku 4.5"],
+		["anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5"],
+	]);
 	const factory = await start({
 		mode: "tui",
 		cwd: "/repo",
@@ -225,6 +229,12 @@ test("shows the routed physical model under a virtual selection", async () => {
 		thinkingLevel: "high",
 		sessionManager: { getEntries: () => entries, getBranch: () => branch, getLeafId: () => leaf },
 		getContextUsage: () => undefined,
+		modelRegistry: {
+			find: (provider: string, id: string) => {
+				const name = names.get(`${provider}/${id}`);
+				return name ? { id, name } : undefined;
+			},
+		},
 	});
 	const footer = factory(
 		{ requestRender() {} },
@@ -233,13 +243,13 @@ test("shows the routed physical model under a virtual selection", async () => {
 	);
 	const modelText = () => stripTerminalSequences(footer.render(100)[1]!).replace(/^.* {2}/, "");
 	// The failed response is skipped; the routed level is omitted when the response has none.
-	assert.equal(modelText(), "auto • high → claude-sonnet-4-5");
+	assert.equal(modelText(), "auto • high → Claude Sonnet 4.5");
 	// Same entries and leaf: cached.
 	branch = [haiku];
-	assert.equal(modelText(), "auto • high → claude-sonnet-4-5");
+	assert.equal(modelText(), "auto • high → Claude Sonnet 4.5");
 	// Tree navigation changes the leaf and refreshes the routed model.
 	leaf = "haiku";
-	assert.match(footer.render(100)[1]!, /→ claude-haiku-4-5 • \x1b\[38;5;118mmedium\x1b\[39m$/);
+	assert.match(footer.render(100)[1]!, /→ Claude Haiku 4\.5 • \x1b\[38;5;118mmedium\x1b\[39m$/);
 	model = { id: "claude-sonnet-4-5", api: "anthropic-messages" };
 	assert.equal(modelText(), "claude-sonnet-4-5 • high");
 	footer.dispose();

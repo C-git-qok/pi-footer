@@ -172,13 +172,13 @@ function rainbow(text: string): string {
 }
 
 /** Physical model and thinking level of the latest successful response on the branch; failed and aborted requests are skipped. */
-function latestResponse(ctx: ExtensionContext): { model: string; thinkingLevel?: string } | undefined {
+function latestResponse(ctx: ExtensionContext): { provider: string; model: string; thinkingLevel?: string } | undefined {
 	const branch = ctx.sessionManager.getBranch();
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const entry = branch[index]!;
 		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		const { stopReason, model, thinkingLevel } = entry.message;
-		if (stopReason !== "error" && stopReason !== "aborted") return { model, thinkingLevel };
+		const { stopReason, provider, model, thinkingLevel } = entry.message;
+		if (stopReason !== "error" && stopReason !== "aborted") return { provider, model, thinkingLevel };
 	}
 }
 
@@ -319,6 +319,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
 		// ponytail: keyed on length + last entry (sessions are append-only) + leaf (tree navigation); revisit if entries ever mutate in place.
 		let usageKey: string | undefined;
 		let routed: ReturnType<typeof latestResponse>;
+		let routedLabel: string | undefined;
 		let input = 0;
 		let output = 0;
 		let cost = 0;
@@ -371,6 +372,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
 						usageKey = key;
 						computeUsage();
 						routed = latestResponse(ctx);
+						// The response records the physical model's id; show the same catalog name as the selection.
+						routedLabel = routed ? ctx.modelRegistry?.find(routed.provider, routed.model)?.name ?? routed.model : undefined;
 					}
 
 					const reportedBranch = data.getGitBranch()?.replace(/^worktree\//, "");
@@ -403,10 +406,10 @@ export default function footerExtension(pi: ExtensionAPI): void {
 						const thinkingColor = THINKING_COLORS[level as keyof typeof THINKING_COLORS];
 						return level === "ultra" ? rainbow(level) : thinkingColor === undefined ? theme.fg("dim", level) : color(level, thinkingColor);
 					};
-					const selected = theme.fg("dim", `${ctx.model?.id ?? "no-model"} • `) + thinkingText(String(ctx.thinkingLevel ?? "off"));
+					const selected = theme.fg("dim", `${ctx.model?.name ?? ctx.model?.id ?? "no-model"} • `) + thinkingText(String(ctx.thinkingLevel ?? "off"));
 					// Under a virtual selection, show where the latest request went, as Pi's own footer does.
-					const model = ctx.model?.api === VIRTUAL_MODEL_API && routed
-						? selected + theme.fg("dim", ` → ${routed.model}`) + (routed.thinkingLevel ? theme.fg("dim", " • ") + thinkingText(routed.thinkingLevel) : "")
+					const model = ctx.model?.api === VIRTUAL_MODEL_API && routed && routedLabel
+						? selected + theme.fg("dim", ` → ${routedLabel}`) + (routed.thinkingLevel ? theme.fg("dim", " • ") + thinkingText(routed.thinkingLevel) : "")
 						: selected;
 					const elapsed = activeMilliseconds + (activeStartedAt === undefined ? 0 : performance.now() - activeStartedAt);
 					const runtime = theme.fg("dim", `◷ ${formatDuration(elapsed)}`);

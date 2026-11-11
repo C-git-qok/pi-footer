@@ -1,6 +1,6 @@
 # pi-footer（C-git-qok fork）
 
-> 本 fork 基于 [@HenryQW/pi-harness](https://github.com/HenryQW/pi-harness) 仓内 pi-footer（v2.2.4），显示层修改：第一行 checkout 标识后追加 session name（与 Pi 内置 footer 一致）；用量行移除费用（$）显示，紧缩为单空格分隔，顺序改为「缓存命中率、TPS、上下文占用」在前、「输入、输出」在后，缓存命中率图标 `↺` 改为 `»`，TPS 图标 `⚡` 改为 `↯` 且数值与单位去空格，上下文图标 `◔` 改为 `🧠`；其余与上游一致。
+> 本 fork 基于 [@HenryQW/pi-harness](https://github.com/HenryQW/pi-harness) 仓内 pi-footer（v2.2.4），显示层修改：第一行 checkout 标识后追加 session name（与 Pi 内置 footer 一致）；用量行移除费用（$）显示，紧缩为单空格分隔，顺序改为「缓存命中率、TPS、上下文占用」在前、「输入、输出」在后，缓存命中率图标 `↺` 改为 `»`，TPS 图标 `⚡` 改为 `↯` 且数值与单位去空格，上下文图标 `◔` 改为 `🧠`；第二行模型标签改用模型目录的显示名（如 `DeepSeek V4.1 Flash 1017`），虚拟模型的 `→` 目标同样使用显示名；其余与上游一致。
 
 Keep checkout identity, model usage, elapsed agent work, and extension status visible while you work in Pi. See repository, pull request, model, and status details without separate commands.
 
@@ -27,12 +27,12 @@ After installing, start a Pi TUI session to see checkout, usage, model, thinking
 
 ```text
 pi-harness · clear-field-f8d2 [+2 ~3 ?1 ↑2] · PR #123 · approved • 修 footer 图标    Codex #1 · 50% · 7d 1d 1h 22m
-»84.3% ↯87.4t/s 🧠73.6k/200.0k[36.8%] ↑12.4k ↓2.1k    gpt-5.6-luna • high
+»84.3% ↯87.4t/s 🧠73.6k/200.0k[36.8%] ↑12.4k ↓2.1k    GPT-5.6 Luna • high
 ✓ CG · ●  🐴 ponytail: ⚡ FULL                                          ◷ 12m 34s
 ```
 
 - The first line shows the repository, branch, Git state, and `pi-pr` pull request status beside the checkout identity, followed by the session name when the session has one. The `pi-multi-codex` quota status, when non-empty, occupies the right side. Linked-worktree branches drop the generated `worktree/` prefix.
-- The second line shows the latest cache-hit rate, tokens per second for the most recent assistant response, and context usage as used/window and percent inside brackets, then cumulative input and output tokens, separated by single spaces. The rate is timed from the response's first streamed content to its last, so request latency, time to first token, and provider work after the stream ends (such as Claude bridge shutting down Claude Code) are excluded. A response streamed for less than 250 ms, delivered without streamed content, or arriving all at once shows `—`. Totals include reported tool usage and finished `pi-subagent` background workflows. The active model and thinking level are right-aligned. Under a virtual model, the physical model and thinking level of the latest successful response follow an arrow, for example `auto • high → gpt-5.6-luna • medium`, matching Pi's built-in footer.
+- The second line shows the latest cache-hit rate, tokens per second for the most recent assistant response, and context usage as used/window and percent inside brackets, then cumulative input and output tokens, separated by single spaces. The rate is timed from the response's first streamed content to its last, so request latency, time to first token, and provider work after the stream ends (such as Claude bridge shutting down Claude Code) are excluded. A response streamed for less than 250 ms, delivered without streamed content, or arriving all at once shows `—`. Totals include reported tool usage and finished `pi-subagent` background workflows. The active model and thinking level are right-aligned using the catalog display name, falling back to the model id. Under a virtual model, the physical model and thinking level of the latest successful response follow an arrow, for example `auto • high → GPT-5.6 Luna • medium`, using the same arrow layout as Pi's built-in footer.
 - The third line shows CodeGraph's icon and `CG` first: `✓ CG` when indexed, `○ CG` when a Git repository has no index, or a dim spinner and elapsed time such as `⠋ CG · indexing 8s` during setup. Non-Git directories show no index badge. Other extension statuses follow, such as `⠋ deps · installing 12s`; dependency preparation statuses disappear when work completes. Persistent CodeGraph failures retain their theme-colored `!` icon and meaningful text. During direct `codegraph_explore` calls, `● CG` temporarily replaces the CodeGraph status, which returns when the call finishes. A middle dot separates statuses; cumulative agent-work time stays on the right, beneath the active model.
 
 Git badges appear only when action is needed:

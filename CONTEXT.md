@@ -11,7 +11,7 @@ Session title from the latest `session_info` entry, appended dim after checkout 
 _Avoid_: Session file name, session id, project name
 
 **Usage line**:
-Latest cache-hit rate, tokens per second for the most recent response with `—` when its streamed window is under 250 ms, and current context usage as used/window and percent, then cumulative session input and output including reported tool usage and finished `pi-subagent` background workflows. Right-aligned active model and thinking level follow. `off` matches dim model text, active levels follow a distinct green-to-red gradient ending with red `max`, and `ultra` is rainbow when runtime supports it.
+Latest cache-hit rate, tokens per second for the most recent response with `—` when its streamed window is under 250 ms, and current context usage as used/window and percent, then cumulative session input and output including reported tool usage and finished `pi-subagent` background workflows. Right-aligned active model display name (falling back to the model id) and thinking level follow. `off` matches dim model text, active levels follow a distinct green-to-red gradient ending with red `max`, and `ultra` is rainbow when runtime supports it.
 _Avoid_: Token counter, status line
 
 **Agent-work time**:
